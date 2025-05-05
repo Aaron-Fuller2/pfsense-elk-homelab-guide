@@ -1,25 +1,24 @@
-# Complete pfSense-ELK Homelab Setup Guide (With Specific Adapters)
+# Updated pfSense-ELK Homelab Setup Guide (Host-Only Monitoring)
 
 > **Network Adapter Information**
-> - **WAN Connection**: Using the built-in Killer Gigabit adapter on motherboard
-> - **LAN Connection**: Using the TP-Link adapter
+> - **External Connection**: Host PC connects to internet via Killer Gigabit adapter (built-in) through existing ASUS Router
+> - **Internal Monitoring**: Using VirtualBox virtual adapters for VM traffic monitoring
 
 ## Introduction
 
-This comprehensive guide walks you through creating a powerful, enterprise-grade home network security and monitoring solution using only free and open-source software. The entire setup runs on your Windows desktop computer using virtual machines, providing professional-level network management without additional hardware costs.
+This simplified guide walks you through creating a virtual network monitoring solution that focuses on monitoring your host PC and all VMs running on it. By using pfSense in a virtual environment, you can gain enterprise-grade security and monitoring capabilities without disrupting your existing home network setup.
 
 ### What This Guide Will Build
 
-**A Complete Home Network Security System** featuring:
+**A VM-Focused Network Monitoring System** featuring:
 
-- **pfSense Firewall**: Enterprise-class routing, firewall, and network services
-- **ELK Stack**: Elasticsearch, Logstash, and Kibana for advanced log analysis and visualization
-- **Network Monitoring**: Real-time traffic analysis and bandwidth monitoring
-- **Security Systems**: Dual IDS (Suricata and Snort) with automatic threat blocking
-- **VLAN Segmentation**: Separate virtual networks for different device categories
-- **Guest Network**: Isolated WiFi with captive portal
-- **Remote Access**: VPN for worldwide access to your network and RDP to your desktop
-- **Mobile Dashboards**: Secure access to monitoring dashboards from your phone
+- **pfSense Firewall VM**: Security and routing for your virtual machines
+- **ELK Stack VM**: Elasticsearch, Logstash, and Kibana for log analysis and visualization
+- **Network Monitoring**: Real-time traffic analysis of VM communications
+- **Security Systems**: IDS (Suricata) with threat blocking for VMs
+- **Virtual Network Isolation**: Separate your VM traffic from your physical network
+- **Comprehensive Logging**: Track traffic between VMs and internet access
+- **Security Dashboard**: Monitor all VM network activity in real-time
 
 ### Key Features
 
@@ -59,24 +58,29 @@ This comprehensive guide walks you through creating a powerful, enterprise-grade
 ## System Architecture Overview
 
 ```
+External Network
+├── Internet ⟷ Modem ⟷ ASUS Router ⟷ Host PC (Killer Gigabit NIC)
+
 Your Desktop Computer
 ├── Windows Host OS
-├── VirtualBox/VMware/Hyper-V
-│   ├── pfSense VM (192.168.1.1)
-│   │   ├── Firewall/Router
-│   │   ├── DHCP Server (Multiple VLANs)
+│   ├── VirtualBox Host-Only Network (vboxnet0, 192.168.56.1)
+│   │   └── Internet Connection Sharing enabled
+├── VirtualBox
+│   ├── pfSense VM
+│   │   ├── WAN Interface (192.168.56.2) ⟷ VirtualBox Host-Only Network
+│   │   ├── LAN Interface (192.168.1.1) ⟷ VirtualBox Internal Network
+│   │   ├── DHCP Server (192.168.1.100-200)
 │   │   ├── Suricata IDS
-│   │   ├── Snort IDS
 │   │   ├── pfBlockerNG
-│   │   ├── ntopng Bandwidth Monitor
-│   │   └── Captive Portal
+│   │   └── ntopng Bandwidth Monitor
 │   └── ELK Stack VM (192.168.1.20)
+│       ├── Connected to VirtualBox Internal Network
 │       ├── Elasticsearch
 │       ├── Logstash
-│       └── Kibana (with additional dashboards)
+│       └── Kibana (with monitoring dashboards)
 └── Network Traffic Flow
-    ├── Internet ⟷ Modem ⟷ PC (Killer Gigabit NIC) ⟷ pfSense VM WAN
-    └── pfSense VM LAN ⟷ PC (TP-Link NIC) ⟷ Wireless Router ⟷ Home Devices
+    ├── Internet ⟷ ASUS Router ⟷ Host PC ⟷ VirtualBox Host-Only ⟷ pfSense WAN
+    └── pfSense LAN ⟷ VirtualBox Internal Network ⟷ Other VMs
 ```
 
 ## Prerequisites
@@ -86,21 +90,20 @@ Your Desktop Computer
 - Windows desktop computer (Host OS)
 - Minimum 16GB RAM (8GB for VMs, 8GB for host)
 - At least 80GB free disk space (8GB pfSense + 60GB ELK + overhead)
-- 2 network interfaces (1 built-in + 1 USB-to-Ethernet adapter)
+- Single network connection (Killer Gigabit Adapter) to your existing ASUS Router
 - CPU with virtualization support (Intel VT-x or AMD-V)
 
-### Physical Network Setup
+### Network Setup
 
-1. **Killer Gigabit Adapter (built-in)**: Connected to your modem (will be pfSense WAN)
-2. **TP-Link Adapter**: Connected to your wireless router (will be pfSense LAN)
+1. **External Connection**: Killer Gigabit Adapter (built-in) → ASUS Router → Modem → Internet
+2. **Internal Connection**: Virtual network adapters in VirtualBox for VM monitoring
 
 ### Software Downloads
 
-1. [VirtualBox](https://www.virtualbox.org/wiki/Downloads), [VMware Workstation/Player](https://www.vmware.com/products/workstation-player.html), or [Hyper-V](https://docs.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v)
-2. [VirtualBox Extension Pack](https://www.virtualbox.org/wiki/Downloads) (if using VirtualBox)
+1. [VirtualBox](https://www.virtualbox.org/wiki/Downloads) (recommended for this setup)
+2. [VirtualBox Extension Pack](https://www.virtualbox.org/wiki/Downloads)
 3. [pfSense ISO](https://www.pfsense.org/download/) - For the firewall VM
 4. [Ubuntu Server ISO](https://ubuntu.com/download/server) - For the ELK VM
-5. USB-to-Ethernet driver (if using USB adapter)
 
 ## Step 1: Prepare Host System
 
@@ -111,17 +114,22 @@ Your Desktop Computer
 3. Enable the feature
 4. Save and exit BIOS
 
-### 1.2 Install Virtualization Software
+### 1.2 Install VirtualBox and Extension Pack
 
-1. Download and install your preferred virtualization software
-2. Install Extension Pack (for VirtualBox)
+1. Download and install VirtualBox
+2. Install the VirtualBox Extension Pack
 3. Restart computer after installation
 
-### 1.3 Configure Host Network Interfaces
+### 1.3 Configure VirtualBox Host-Only Network
 
-Make sure both network interfaces are properly connected:
-- **Killer Gigabit Adapter (built-in)**: Connected to your modem
-- **TP-Link Adapter**: Will be connected to your wireless router (but don't connect it yet)
+1. Open VirtualBox
+2. Go to File → Host Network Manager
+3. Click "Create" to create a new host-only network
+4. Configure the network:
+   - IPv4 Address: 192.168.56.1
+   - IPv4 Network Mask: 255.255.255.0
+   - Disable DHCP Server
+5. Click Apply and close the Host Network Manager
 
 ## Step 2: Create pfSense Virtual Machine
 
@@ -146,14 +154,14 @@ Make sure both network interfaces are properly connected:
 
 - **Adapter 1 (WAN)**:
   - Enable Network Adapter
-  - Attached to: **Bridged Adapter**
-  - Select the **Killer Gigabit Adapter** (built-in motherboard NIC)
+  - Attached to: **Host-only Adapter**
+  - Select the **VirtualBox Host-Only Ethernet Adapter** (vboxnet0)
   - **Advanced → Promiscuous Mode: Allow All**
    
 - **Adapter 2 (LAN)**:
   - Enable Network Adapter
-  - Attached to: **Bridged Adapter**
-  - Select the **TP-Link Adapter**
+  - Attached to: **Internal Network**
+  - Name: "pfSense-LAN"
   - **Advanced → Promiscuous Mode: Allow All**
 
 **Storage Settings:**
@@ -177,34 +185,81 @@ Make sure both network interfaces are properly connected:
 
 1. When prompted for VLAN setup, select "n" (no)
 2. Assign interfaces:
-   - WAN: Select the interface connected to your modem (usually em0/vtnet0)
-   - LAN: Select the interface connected to your wireless router (usually em1/vtnet1)
+   - WAN: Select the interface connected to vboxnet0 (usually em0/vtnet0)
+   - LAN: Select the interface connected to the Internal Network (usually em1/vtnet1)
 3. Confirm the assignments
 4. Configure LAN IP: 192.168.1.1 (default is fine)
 5. Enable DHCP server on LAN when prompted
+6. Set DHCP range: 192.168.1.100 to 192.168.1.200
+
+### 3.3 Verify Network Configuration
+
+**Connectivity Test #1:**
+1. Check if pfSense shows successful boot with both interfaces UP
+2. From the pfSense console, test internet connectivity:
+   ```
+   ping 8.8.8.8
+   ```
+   - If successful, pfSense can reach the internet
+   - If failed, check the WAN configuration and Host-Only network settings
+
+3. Verify services are running:
+   ```
+   ps ax | grep dhcpd
+   ```
+   - Should show the DHCP service is active
+
+4. Record interface names and MAC addresses for reference:
+   ```
+   ifconfig
+   ```
 
 ## Step 4: Configure Windows Host Networking
 
-### 4.1 Windows Network Configuration
+### 4.1 Configure Host-Only Network Adapter
 
-**For the TP-Link Adapter (that will connect to your wireless router):**
-1. Right-click the TP-Link adapter in Network Connections
-2. Properties → TCP/IPv4 → Properties
-3. Set IP: 192.168.1.10
-4. Subnet: 255.255.255.0
-5. Gateway: 192.168.1.1
-6. DNS: 192.168.1.1
+1. Open Network Connections (Win+R, type "ncpa.cpl")
+2. Find the VirtualBox Host-Only Network adapter (named "VirtualBox Host-Only Ethernet Adapter")
+3. Right-click → Properties → TCP/IPv4 → Properties
+4. Confirm these settings:
+   - IP: 192.168.56.1
+   - Subnet: 255.255.255.0
+   - Gateway: Leave blank
+   - DNS: Leave blank
+5. Click OK to save
 
-**For the Killer Gigabit Adapter (connected to your modem):**
-- Leave as configured to receive DHCP from your ISP
+### 4.2 Enable Internet Connection Sharing
 
-### 4.2 Configure Windows Default Route
+1. In Network Connections, right-click your Killer Gigabit adapter (connected to ASUS Router)
+2. Select Properties
+3. Go to the Sharing tab
+4. Check "Allow other network users to connect through this computer's Internet connection"
+5. From the dropdown, select the VirtualBox Host-Only Ethernet Adapter
+6. Click OK to save
 
-Open Command Prompt as Administrator and run:
-```
-route delete 0.0.0.0
-route add 0.0.0.0 mask 0.0.0.0 192.168.1.1
-```
+### 4.3 Verify Host Network Configuration
+
+**Connectivity Test #2:**
+1. Open Command Prompt as Administrator
+2. Check your network adapters and IP assignments:
+   ```
+   ipconfig /all
+   ```
+   - Verify Killer Gigabit adapter has internet connection
+   - Verify VirtualBox Host-Only adapter shows 192.168.56.1
+
+3. Test connectivity to pfSense WAN:
+   ```
+   ping 192.168.56.2
+   ```
+   - If successful, your host can communicate with pfSense
+   - If failed, check VirtualBox and network adapter settings
+
+4. Verify Internet Connection Sharing is working:
+   ```
+   netsh interface ipv4 show interfaces
+   ```
+   - Look for shared connection status
 
 ## Step 5: Configure pfSense Web Interface
 
@@ -222,13 +277,16 @@ Run through the setup wizard:
 1. **General Information:**
    - Hostname: pfSense
    - Domain: localdomain
-   - DNS Servers: Use your ISP's DNS or public DNS (8.8.8.8, 8.8.4.4)
+   - DNS Servers: Use public DNS (8.8.8.8, 8.8.4.4)
 
 2. **Time Server:**
    - Use default NTP servers
 
 3. **WAN Interface Configuration:**
-   - Type: DHCP (or static IP if provided by ISP)
+   - Type: Static IP
+   - IP Address: 192.168.56.2
+   - Subnet Mask: 24
+   - Gateway: 192.168.56.1 (your host-only adapter IP)
    - **Important:** Uncheck "Block private networks" and "Block bogon networks"
 
 4. **LAN Interface Configuration:**
@@ -247,59 +305,163 @@ Run through the setup wizard:
 3. **Check "Disable hardware TCP segmentation offload"**
 4. Save changes
 
-These settings are crucial for virtual environments to prevent networking issues.
+### 5.4 Configure Basic Firewall Rules
 
-## Step 6: Configure Wireless Router as Access Point
+1. Navigate to Firewall → Rules → LAN
+2. Verify the default "Allow all from LAN to any" rule exists
+3. Add a more restrictive rule (above the default):
+   - Action: Pass
+   - Interface: LAN
+   - Address Family: IPv4
+   - Protocol: Any
+   - Source: LAN net
+   - Destination: Any
+   - Description: "Allow LAN to Any"
+4. Save and Apply Changes
 
-### 6.1 Access Router Configuration
+5. Navigate to Firewall → Rules → WAN
+6. Add a rule to allow established connections:
+   - Action: Pass
+   - Interface: WAN
+   - Address Family: IPv4
+   - Protocol: Any
+   - Source: Any
+   - Destination: Any
+   - Advanced Options: Check "This firewall" 
+   - Description: "Allow established connections"
+7. Save and Apply Changes
 
-1. Connect to your wireless router (default IP usually 192.168.0.1 or 192.168.1.1)
-2. Login with default credentials
+### 5.5 Verify Web Configuration
 
-### 6.2 Configure Access Point Mode
+**Connectivity Test #3:**
+1. From your Windows host, open a Command Prompt
+2. Test connection to Google DNS:
+   ```
+   ping 8.8.8.8
+   ```
+   - Should be successful
 
-1. Find "Operation Mode" or "Wireless Mode" in settings
-2. Change from "Router Mode" to "Access Point Mode"
-3. Set a static IP for the router: 192.168.1.2
-4. **Disable DHCP server** on the router (pfSense will handle this)
-5. Configure your wireless settings (SSID, password)
-6. Save changes and reboot
+3. Test DNS resolution:
+   ```
+   nslookup google.com
+   ```
+   - Should resolve correctly
 
-### 6.3 Connect Router to pfSense
+4. In pfSense web interface, go to Status → System Logs → System
+5. Verify no critical errors are present
 
-Important: Connect the router to your computer's second NIC using one of the router's **LAN ports**, not the WAN port.
+## Step 6: Create ELK Stack VM
 
-## Step 7: Advanced DHCP Configuration
+### 6.1 Create Ubuntu VM for ELK Stack
 
-### 7.1 Configure DHCP Server
+1. In VirtualBox, click "New"
+2. Name: ELK-Stack
+3. Type: Linux
+4. Version: Ubuntu (64-bit)
+5. Memory: 8192 MB (8GB RAM)
+6. Create virtual hard disk: 60 GB (VDI, dynamically allocated)
 
-1. In pfSense, navigate to Services → DHCP Server → LAN
-2. Configure:
-   - Range: 192.168.1.100 - 192.168.1.250
-   - DNS Servers: 192.168.1.1
-   - Domain name: home.local
-   - Gateway: 192.168.1.1
-   - Enable DDNS: Check
-   - DHCP Registration: Register leases in DNS resolver
+### 6.2 Configure VM Network Settings
 
-### 7.2 Set Up Static Mappings for Important Devices
+1. Select the ELK-Stack VM
+2. Go to Settings → Network
+3. **Adapter 1**:
+   - Enable Network Adapter
+   - Attached to: **Internal Network**
+   - Name: "pfSense-LAN" (same as pfSense's LAN interface)
+4. Click OK to save
 
-For devices you want to have fixed IPs:
-1. Services → DHCP Server → LAN → DHCP Static Mappings
-2. Click "+Add" for each device
-3. Enter MAC Address, desired IP, and hostname
-4. Save
+### 6.3 Install Ubuntu Server
 
-## Step 8: Install and Configure Suricata IDS
+1. Attach the Ubuntu Server ISO to the virtual optical drive
+2. Start the VM and follow the Ubuntu installation wizard
+3. When configuring network, use DHCP (it will get an IP from pfSense)
+4. Complete the installation and reboot
 
-### 8.1 Install Package
+### 6.4 Verify ELK VM Connectivity
 
-1. System → Package Manager → Available Packages
+**Connectivity Test #4:**
+1. After Ubuntu boots, login to the system
+2. Check the IP address assigned by pfSense:
+   ```bash
+   ip addr show
+   ```
+   - Should show an IP in the 192.168.1.x range
+
+3. Test connectivity to pfSense:
+   ```bash
+   ping 192.168.1.1
+   ```
+   - Should be successful
+
+4. Test internet connectivity:
+   ```bash
+   ping 8.8.8.8
+   ping google.com
+   ```
+   - Both should be successful
+
+## Step 7: Install and Configure ELK Stack
+
+### 7.1 Set Static IP for ELK VM
+
+1. After Ubuntu boots, login to the system
+2. Configure a static IP:
+   ```bash
+   sudo nano /etc/netplan/00-installer-config.yaml
+   ```
+3. Add the following configuration:
+   ```yaml
+   network:
+     ethernets:
+       enp0s3:
+         dhcp4: no
+         addresses: [192.168.1.20/24]
+         gateway4: 192.168.1.1
+         nameservers:
+           addresses: [192.168.1.1, 8.8.8.8]
+     version: 2
+   ```
+4. Apply the configuration:
+   ```bash
+   sudo netplan apply
+   ```
+
+### 7.2 Install ELK Components
+
+```bash
+# Add Elastic repository
+wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -
+echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee /etc/apt/sources.list.d/elastic-7.x.list
+
+# Update and install
+sudo apt update
+sudo apt install elasticsearch logstash kibana
+
+# Configure Elasticsearch
+sudo nano /etc/elasticsearch/elasticsearch.yml
+# Set: network.host: 0.0.0.0
+# Set: discovery.type: single-node
+
+# Configure Kibana
+sudo nano /etc/kibana/kibana.yml
+# Set: server.host: "0.0.0.0"
+
+# Start services
+sudo systemctl enable elasticsearch logstash kibana
+sudo systemctl start elasticsearch logstash kibana
+```
+
+## Step 8: Install and Configure Security Packages in pfSense
+
+### 8.1 Install Suricata IDS/IPS Package
+
+1. In pfSense, go to System → Package Manager → Available Packages
 2. Search for "suricata"
 3. Click "Install"
 4. Confirm installation
 
-### 8.2 Configure Suricata
+### 8.2 Configure Suricata with IPS
 
 1. Services → Suricata → Global Settings:
    - Enable: Check
@@ -311,50 +473,40 @@ For devices you want to have fixed IPs:
    - Add interface
    - Interface: LAN
    - Enable: Check
-   - IPS Mode: Check
+   - **IPS Mode: Check** (enables intrusion prevention)
    - Block Offenders: Check
+   - Promiscuous Mode: Check
    
 3. Enable Protocol Logging:
    - HTTP Log: Check
    - TLS Log: Check
    - DNS Log: Check
+   - File Extraction: Check (enables malware detection)
    
 4. Configure EVE Output Settings:
    - EVE JSON Log: Check
    - EVE Output Type: FILE
-   - Enable various EVE log types (Alerts, HTTP, DNS, TLS, Files)
+   - Enable all relevant EVE log types (Alerts, HTTP, DNS, TLS, Files)
 
 5. Update rules:
    - Services → Suricata → Updates
    - Enable rule updates
    - Update Interval: 12 hours
    - Click "Update" to download rules
+   - Select relevant rule categories (emerging threats, malware, etc.)
 
-## Step 9: Install Additional Security Packages
+### 8.3 Verify Suricata Installation
 
-### 9.1 Install pfBlockerNG
+**Connectivity Test #5:**
+1. In pfSense, go to Services → Suricata → Interfaces
+2. Verify the status is "Running"
+3. Check Status → System Logs → Suricata
+4. Confirm log entries are being generated
+5. Test a known benign detection rule:
+   - From a VM on the internal network, visit testmyids.com
+   - Check Suricata logs for the expected alert
 
-1. System → Package Manager → Available Packages
-2. Search for "pfBlockerNG"
-3. Click "Install"
-
-Configuration:
-1. Firewall → pfBlockerNG → General
-   - Enable pfBlockerNG: Check
-   - Keep Settings: 7 days
-   - CRON Settings: Daily
-   
-2. Configure IP blocking lists and DNS blocking as desired
-
-### 9.2 Install ntopng for Bandwidth Monitoring
-
-1. System → Package Manager → Available Packages
-2. Search for "ntopng"
-3. Click "Install"
-
-Configuration:
-1. Diagnostics → ntopng Settings
-   - Enable ntopng: Check
+ Enable ntopng: Check
    - Interface Selection: LAN
    - Admin Password: Set strong password
    - DNS Mode: Local resolution
@@ -486,134 +638,315 @@ output {
    - Services → DNS Resolver → Advanced Settings
    - Log Level: set appropriate level
 
-## Step 12: Create Kibana Dashboards
+## Step 12: Create Additional Virtual Machines
 
-### 12.1 Access Kibana
+### 12.1 Create Test VMs for Monitoring
 
-1. Open browser on your Windows host
-2. Navigate to http://192.168.1.20:5601
-3. Kibana interface will load
+Creating additional VMs on the "pfSense-LAN" internal network will allow you to test your monitoring setup.
 
-### 12.2 Create Index Pattern
+1. In VirtualBox, create a new VM (e.g., "TestVM"):
+   - Type: Linux/Windows (your preference)
+   - Memory: 2048 MB (2GB RAM)
+   - Disk: 20 GB (dynamically allocated)
 
-1. Management → Stack Management → Index Patterns
-2. Create pattern: pfsense-*
-3. Time field: @timestamp
-4. Create index pattern
+2. Configure Network:
+   - Adapter 1: Internal Network
+   - Name: "pfSense-LAN" (same as pfSense's LAN interface)
+   - Promiscuous Mode: Allow All
 
-### 12.3 Build Basic Dashboards
+3. Install the operating system of your choice
 
-Create visualizations for:
+4. Verify Network Connectivity:
+   - VM should receive an IP from pfSense (192.168.1.x)
+   - VM should be able to access the internet via pfSense
+   - VM traffic should be logged and monitored
 
-1. Network Activity:
-   - Traffic volume over time
-   - Top source/destination IPs
-   - Protocol distribution
+### 12.2 Configure Monitoring for Host PC Traffic
+
+To monitor traffic from your host PC:
+
+1. Create a Virtual Machine specifically for testing host traffic:
+   - Adapter 1: Internal Network ("pfSense-LAN")
+   - Install lightweight OS
+
+2. On this VM, install tools like Wireshark or tcpdump:
+   ```bash
+   sudo apt install wireshark
+   ```
+
+3. Generate test traffic from your host PC to verify monitoring
+
+### 12.3 Verify Test VM Configuration
+
+**Connectivity Test #9:**
+1. From the test VM, check its IP configuration:
+   - Windows: `ipconfig /all`
+   - Linux: `ip addr show`
    
-2. Security Events:
-   - Suricata alerts timeline
-   - Blocked connections
-   - Top attack signatures
+2. Verify connectivity to pfSense:
+   - Ping 192.168.1.1
    
-3. Device Tracking:
-   - Active devices list
-   - Device connection timeline
-   - Device bandwidth usage
-
-## Step 13: Testing Your Setup
-
-### 13.1 Verify Internet Connectivity
-
-1. Connect a device to your wireless router
-2. Verify you can access the internet
-3. Check pfSense dashboard to confirm traffic is flowing
-
-### 13.2 Verify Logging and Monitoring
-
-1. Access Kibana dashboard
-2. Confirm logs are being received from pfSense
-3. Generate some traffic and verify it appears in the dashboards
-
-## Step 14: Optional Remote Access Configuration
-
-### 14.1 Set Up OpenVPN for Remote Access
-
-1. System → Package Manager → Available Packages
-2. Install "openvpn-client-export" package
-3. Follow the pfSense OpenVPN wizard to set up the server
-4. Configure firewall rules to allow VPN traffic
-5. Export client configurations for your devices
-
-### 14.2 Configure Remote Kibana Access
-
-Option 1: VPN-only access (most secure)
-Option 2: Set up HTTPS with reverse proxy and authentication
-
-## Step 15: Regular Maintenance
-
-### 15.1 Update Schedule
-
-1. pfSense: System → Update (weekly)
-2. Suricata rules: Services → Suricata → Updates (daily)
-3. ELK Stack: Regular apt updates
-
-### 15.2 Backup Procedure
-
-1. pfSense configuration: Diagnostics → Backup & Restore
-2. ELK Stack: Configure regular snapshots and backups
-3. Dashboard exports: Save Kibana dashboard configurations
-
-## Troubleshooting Guide
-
-### Common Issues and Solutions
-
-#### No Internet Connection
-
-- Check physical connections
-- Verify VM network adapter settings
-- Confirm promiscuous mode is enabled on both interfaces
-- Check firewall rules
-
-#### pfSense LAN Interface Not Working
-
-- Verify bridged adapter is correctly assigned 
-- Check promiscuous mode settings
-- Test with different USB ports if using USB adapter
-
-#### Device Not Getting IP Address
-
-- Check DHCP server status in pfSense
-- Verify wireless router is in AP mode with DHCP disabled
-- Check for IP conflicts
-
-#### ELK Not Receiving Logs
-
-- Verify remote logging is enabled in pfSense
-- Check Logstash configuration
-- Confirm firewall allows traffic on port 5140
-
-### Performance Optimization
-
-1. **Virtual Machine Resources:**
-   - Allocate sufficient RAM and CPU
-   - Use hardware virtualization extensions
+3. Test internet connectivity:
+   - Ping 8.8.8.8
+   - Browse a website
    
-2. **Network Performance:**
-   - Disable hardware offloading in pfSense
-   - Use quality NICs and cables
-   
-3. **Logging Volume:**
-   - Configure appropriate log levels
-   - Set up log rotation and retention policies
+4. Check pfSense and ELK dashboards:
+   - Verify traffic from the test VM appears in logs
+   - Check ntopng to see the VM in the hosts list
+   - Verify Suricata is monitoring the VM's traffic
+
+## Step 13: Testing Your Complete Setup
+
+### 13.1 Comprehensive Connectivity Testing
+
+1. **External to Internal Testing**:
+   - Generate traffic from internet to VMs (if allowed by firewall)
+   - Verify pfSense firewall blocks unauthorized access
+   - Check logs for blocked connection attempts
+
+2. **Internal to External Testing**:
+   - Browse websites from test VMs
+   - Download various file types
+   - Run speed tests to verify throughput
+   - Confirm all traffic is logged in ELK
+
+3. **VM-to-VM Communication Testing**:
+   - Set up file sharing between VMs
+   - Transfer files between VMs
+   - Check network flow visualization
+   - Verify traffic is properly monitored
+
+### 13.2 Security Testing
+
+1. **IPS Testing**:
+   - Visit a test site like testmyids.com
+   - Generate known patterns that trigger Suricata
+   - Verify alerts appear in Kibana
+   - Confirm block actions work if configured
+
+2. **DNS Blocking Testing**:
+   - Attempt to visit known malicious domains
+   - Check pfBlockerNG logs for blocked requests
+   - Verify the events appear in ELK dashboards
+
+3. **Log Collection Testing**:
+   - Generate various types of events
+   - Search for them in Kibana
+   - Verify all expected fields are parsed correctly
+   - Check log retention policy is working
+
+### 13.3 Performance Testing
+
+1. **Network Throughput**:
+   - Run iperf between VMs
+   - Measure bandwidth with ntopng
+   - Verify performance impact of security features
+
+2. **Resource Utilization**:
+   - Monitor CPU/RAM usage on pfSense
+   - Check ELK stack performance
+   - Ensure host system remains responsive
+
+**Final Connectivity Test #10:**
+1. Verify all components are working together:
+   - pfSense is routing and protecting
+   - Suricata is detecting threats
+   - pfBlockerNG is blocking malicious content
+   - ntopng is visualizing traffic
+   - ELK is collecting and analyzing logs
+   - Kibana dashboards display meaningful data
+
+2. Run a manual packet capture on pfSense:
+   - Diagnostics → Packet Capture
+   - Capture some traffic
+   - Analyze for expected behavior
+
+## Step 14: Advanced Configuration
+
+### 14.1 Configure Advanced Firewall Rules
+
+1. **Layer 7 Application Control**:
+   - Navigate to Firewall → Rules → LAN
+   - Add rule to block specific applications:
+     - Action: Block
+     - Protocol: TCP/UDP
+     - Destination: Any
+     - Advanced Features: Layer 7 (select applications to block)
+     - Description: "Block unauthorized applications"
+
+2. **Time-Based Access Rules**:
+   - Create schedule:
+     - Firewall → Schedules → Add
+     - Name: "WorkHours" 
+     - Define time periods
+   - Add rule with schedule:
+     - Action: Pass/Block
+     - Schedule: "WorkHours"
+     - Description: "Time-based access control"
+
+3. **Rate Limiting**:
+   - Create limiter:
+     - Firewall → Traffic Shaper → Limiters → New Limiter
+     - Name: "BandwidthLimit"
+     - Bandwidth: Set appropriate limit (e.g., 10Mbit/s)
+   - Apply to firewall rule:
+     - Edit rule → Advanced Features → In/Out Pipe: "BandwidthLimit"
+
+### 14.2 Enhanced Logging and Alerting
+
+1. **Configure Email Notifications**:
+   - System → Advanced → Notifications
+   - Enable SMTP notifications
+   - Enter SMTP server details
+   - Test notification
+
+2. **Create Suricata Alert Rules**:
+   - Services → Suricata → Rules → Add
+   - SID: 9000001 (custom rule)
+   - Rule: `alert tcp any any -> $HOME_NET any (msg:"Custom Alert Rule"; content:"suspicious"; classtype:bad-unknown; sid:9000001; rev:1;)`
+   - Save and update
+
+3. **Configure pfBlockerNG Alerts**:
+   - Firewall → pfBlockerNG → Alerts
+   - Enable Alert settings
+   - Configure notification preferences
+
+### 14.3 Network Flow Analysis Tuning
+
+1. **Configure ntopng Flow Collection**:
+   - Enable NetFlow/sFlow:
+     - Diagnostics → ntopng Settings
+     - Enable Flow Collection: Check
+     - Flow Sampling Rate: 1
+
+2. **Customize ntopng Categories**:
+   - Create application categories:
+     - Access ntopng web interface
+     - Configure → Category Configuration
+     - Add categories for different types of VMs or applications
+
+3. **Flow Visualization Enhancements**:
+   - Enable historical data:
+     - Configure → Preferences
+     - Historical Interface: Enable
+     - Retention: Set appropriate period (e.g., 30 days)
+
+## Step 15: Maintenance and Disaster Recovery
+
+### 15.1 Regular Updates
+
+1. **pfSense Updates**:
+   - System → Update (check weekly)
+   - Update all installed packages
+   - Create a backup before updates
+   - Schedule updates during low-traffic periods
+   - Verify functionality after updates
+
+2. **ELK Stack Updates**:
+   ```bash
+   sudo apt update
+   sudo apt upgrade
+   ```
+   - Test after major version upgrades
+   - Backup configurations before upgrading
+
+3. **Security Rule Updates**:
+   - Services → Suricata → Updates
+   - Set automatic update schedule
+   - Review rule changes regularly
+   - Monitor for false positives after updates
+
+### 15.2 Performance Monitoring and Tuning
+
+1. **pfSense Resource Monitoring**:
+   - Status → Monitoring
+   - Track CPU, memory, and disk usage
+   - Set up SNMP monitoring if needed
+   - Configure email alerts for resource thresholds
+
+2. **ELK Performance Tuning**:
+   - Monitor Elasticsearch heap usage
+   - Adjust JVM settings as needed:
+     ```bash
+     sudo nano /etc/elasticsearch/jvm.options
+     # Set -Xms and -Xmx to appropriate values (50% of RAM)
+     ```
+   - Optimize index settings for performance
+
+3. **Network Performance**:
+   - Use ntopng to identify bandwidth issues
+   - Implement traffic shaping for critical services
+   - Optimize firewall rules (order by most used)
+
+### 15.3 Comprehensive Backup Strategy
+
+1. **pfSense Configuration Backup**:
+   - Diagnostics → Backup & Restore
+   - Check "Backup area" → All
+   - Enable encryption option
+   - Schedule regular automated backups:
+     - System → Cron
+     - Add job to run config backup script
+
+2. **ELK Stack Backups**:
+   - Elasticsearch snapshots:
+     ```bash
+     # Create repository
+     curl -X PUT "localhost:9200/_snapshot/backup_repo" -H 'Content-Type: application/json' -d'
+     {
+       "type": "fs",
+       "settings": {
+         "location": "/path/to/backup"
+       }
+     }'
+     
+     # Create snapshot
+     curl -X PUT "localhost:9200/_snapshot/backup_repo/snapshot_1"
+     ```
+   - Kibana saved objects export:
+     - Management → Saved Objects → Export
+   - Logstash configuration backup
+
+3. **Recovery Testing**:
+   - Periodically test restore procedures
+   - Document recovery steps
+   - Estimate recovery time for planning
+   - Create VM snapshots before major changes
 
 ## Conclusion
 
-You've now set up a complete home network security and monitoring solution that:
+You've now set up a comprehensive virtual network monitoring and protection solution focused on your host PC and VMs. This setup provides enterprise-grade security capabilities while maintaining your existing home network setup.
 
-- Routes all traffic through pfSense for inspection
-- Captures and analyzes network activity
-- Provides real-time monitoring dashboards
-- Enhances network security with IDS and blocking
-- Allows for detailed logging and historical analysis
+### Key Accomplishments
 
-This homelab setup offers enterprise-grade features while running entirely on your Windows desktop, without specialized hardware. As you gain familiarity with the system, you can explore advanced features like VLANs, captive portals, and additional security tools.
+1. **Complete Network Security**: Your virtual environment is now protected by pfSense's advanced firewall, Suricata IDS/IPS, and pfBlockerNG threat intelligence.
+
+2. **In-Depth Traffic Analysis**: With ntopng flow visualization and ELK Stack analytics, you have complete visibility into all VM network communications.
+
+3. **Active Threat Prevention**: The IPS capabilities actively block detected threats, protecting your VMs from malicious activity.
+
+4. **Comprehensive Logging**: All network activity is logged, analyzed, and visualized in Kibana dashboards, providing real-time security insights.
+
+5. **Skill Development**: This homelab provides an excellent platform for developing network security and monitoring skills.
+
+### Key Benefits
+
+- **Isolated Security Environment**: Test security configurations without impacting your main network
+- **Real-Time Network Visibility**: See all traffic flowing through your virtual environment
+- **Professional Security Tools**: Learn enterprise-grade security applications
+- **Customizable Protection**: Configure security settings based on your specific needs
+- **Non-Disruptive Implementation**: Maintain your existing internet connection while adding security
+
+### Next Steps
+
+As you become more familiar with this setup, consider:
+
+1. **Extending Monitoring**: Add more advanced Kibana visualizations and machine learning for anomaly detection
+2. **Custom Security Rules**: Develop your own Suricata rules for specific threats
+3. **Advanced Network Scenarios**: Experiment with more complex network topologies using VLANs
+4. **Automation**: Add scripted responses to security events
+5. **Integration with Other Tools**: Connect to third-party threat intelligence feeds
+
+This virtual monitoring and protection system provides an excellent foundation for network security experimentation, learning, and protection for your virtual machines while allowing you to maintain your existing network infrastructure.
+
+Happy monitoring and securing!
